@@ -1,0 +1,30 @@
+name: Playtime Collector
+version: "0.1.0"
+slug: playtime_collector
+description: Track PS3 (webMAN MOD) playtime and trophies and expose them over a JSON API
+url: https://github.com/OWNER/playtime-collector
+arch:
+  - amd64
+  - aarch64
+init: false
+boot: auto
+ports:
+  "3301/tcp": 3301
+ports_description:
+  "3301/tcp": JSON API
+map:
+  - data:rw
+options:
+  ps3_host: ""
+  poll_interval: 30
+  trophy_interval: 1800
+  account: "ps3"
+  ignore_accounts: "Vlad"
+  auth_token: ""
+schema:
+  ps3_host: str
+  poll_interval: int
+  trophy_interval: int
+  account: str
+  ignore_accounts: str
+  auth_token: str
