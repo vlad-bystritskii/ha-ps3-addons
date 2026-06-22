@@ -153,8 +153,13 @@ async def refresh_rarity():
 
 async def rarity_loop():
     while True:
+        delay = config.RARITY_INTERVAL
         try:
-            await refresh_rarity()
+            if config.PSN_NPSSO and not db.distinct_npcommids():
+                # Trophies not scanned yet — check back soon instead of waiting a day.
+                delay = 120
+            else:
+                await refresh_rarity()
         except Exception:
             log.exception("rarity refresh failed")
-        await asyncio.sleep(config.RARITY_INTERVAL)
+        await asyncio.sleep(delay)
