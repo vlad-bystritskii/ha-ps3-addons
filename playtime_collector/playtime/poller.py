@@ -5,12 +5,37 @@ available (accurate), otherwise we fall back to counting poll intervals.
 """
 import asyncio
 import logging
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from . import config, db, psn, trophies
 from .ps3 import fetch_snapshot, list_profiles, resolve_username
 
-log = logging.getLogger("playtime.poller")
+log = logging.getLogger("playtime")
+
+# Heartbeat: log "still playing" at most once per this many seconds of a session.
+HEARTBEAT_SECONDS = 900
+_last_heartbeat = 0
+
+
+def fmt_dur(seconds):
+    seconds = int(seconds or 0)
+    h, m = seconds // 3600, (seconds % 3600) // 60
+    if h:
+        return "%dh%02dm" % (h, m)
+    if m:
+        return "%dm" % m
+    return "%ds" % seconds
+
+
+def close_active(platform, reason):
+    """Close the open session (if any) and log how long it ran."""
+    current = db.get_open_session(platform)
+    if current:
+        log.info("⏹ %s — %s · %s (%s)",
+                 current["account"], current["title"] or current["title_id"],
+                 fmt_dur(current["seconds"]), reason)
+    db.close_open_sessions(platform)
 
 
 def icon_path(account, npcommid, trophy_id):
@@ -31,24 +56,25 @@ async def cache_icon(client, profile_id, account, npcommid, trophy_id):
 
 
 def handle_snapshot(snapshot, account):
+    global _last_heartbeat
     platform = config.PLATFORM
     now = db.now_iso()
 
     # Offline (console off / HEN not enabled) or at the home menu: close any
     # running session so we never count time while nothing is playing.
     if not snapshot.online:
-        db.close_open_sessions(platform)
+        close_active(platform, "offline")
         return
 
     db.set_meta("last_poll_at", now)
 
     if not snapshot.title_id:
-        db.close_open_sessions(platform)
+        close_active(platform, "home menu")
         return
 
     # Skip untracked profiles (e.g. the technical "Vlad" account).
     if account in config.IGNORE_ACCOUNTS:
-        db.close_open_sessions(platform)
+        close_active(platform, "ignored profile")
         return
 
     seconds = snapshot.play_seconds
@@ -65,9 +91,20 @@ def handle_snapshot(snapshot, account):
         if seconds is None:
             seconds = current["seconds"] + config.POLL_INTERVAL
         db.update_open_session(current["id"], seconds, snapshot.title, now)
+        if seconds - _last_heartbeat >= HEARTBEAT_SECONDS:
+            log.info("… %s playing %s · %s",
+                     account, snapshot.title or snapshot.title_id, fmt_dur(seconds))
+            _last_heartbeat = seconds
     else:
         # New game, or the active profile changed -> start a fresh session.
+        if current:
+            log.info("⏹ %s — %s · %s (switched)",
+                     current["account"], current["title"] or current["title_id"],
+                     fmt_dur(current["seconds"]))
         db.open_session(platform, account, snapshot.title_id, snapshot.title, seconds or 0, now)
+        _last_heartbeat = seconds or 0
+        log.info("▶ %s started %s (%s)",
+                 account, snapshot.title or snapshot.title_id, snapshot.title_id)
 
 
 async def poll_loop(client):
@@ -163,3 +200,26 @@ async def rarity_loop():
         except Exception:
             log.exception("rarity refresh failed")
         await asyncio.sleep(delay)
+
+
+def log_daily_summary():
+    since = (datetime.now(timezone.utc) - timedelta(seconds=config.SUMMARY_INTERVAL)).isoformat()
+    totals = db.totals(frm=since)
+    log.info("── last %s ──", fmt_dur(config.SUMMARY_INTERVAL))
+    if totals:
+        for row in totals:
+            log.info("   %s · %s · %s",
+                     row["account"], row["title"] or row["title_id"], fmt_dur(row["total_seconds"]))
+    else:
+        log.info("   no playtime")
+    for account, count in db.trophies_earned_since(since):
+        log.info("   %s · +%d trophies", account, count)
+
+
+async def summary_loop():
+    while True:
+        await asyncio.sleep(config.SUMMARY_INTERVAL)
+        try:
+            log_daily_summary()
+        except Exception:
+            log.exception("summary failed")

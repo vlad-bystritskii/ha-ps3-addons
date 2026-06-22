@@ -67,3 +67,6 @@ ICON_DIR = get("icon_dir", "ICON_DIR", str(data_dir / "icons"))
 PSN_NPSSO = get("psn_npsso", "PSN_NPSSO", "")
 # How often to refresh PSN rarity, in seconds (changes slowly).
 RARITY_INTERVAL = int(get("rarity_interval", "RARITY_INTERVAL", 86400))
+
+# How often to log a "last 24h" activity summary, in seconds.
+SUMMARY_INTERVAL = int(get("summary_interval", "SUMMARY_INTERVAL", 86400))

@@ -355,6 +355,17 @@ def get_rarity(npcommid):
     return {r["trophy_id"]: {"earned_rate": r["earned_rate"], "rare": r["rare"]} for r in rows}
 
 
+def trophies_earned_since(since_iso):
+    """[(account, count)] of trophies unlocked at/after since_iso (for summaries)."""
+    with lock:
+        rows = conn.execute(
+            "SELECT account, COUNT(*) AS c FROM trophy_items "
+            "WHERE unlocked = 1 AND earned_at >= ? GROUP BY account ORDER BY c DESC",
+            (since_iso,),
+        ).fetchall()
+    return [(r["account"], r["c"]) for r in rows]
+
+
 def delete_sessions(account):
     with lock:
         cur = conn.execute("DELETE FROM sessions WHERE account = ?", (account,))

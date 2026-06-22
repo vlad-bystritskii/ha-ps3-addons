@@ -11,19 +11,21 @@ from fastapi import FastAPI, Header, HTTPException, Query, Request, Response
 from contextlib import asynccontextmanager
 
 from . import config, db, ps3, trophies
-from .poller import poll_loop, trophy_loop, rarity_loop
+from .poller import poll_loop, trophy_loop, rarity_loop, summary_loop
 
-log = logging.getLogger("playtime.api")
+log = logging.getLogger("playtime")
 
 
 @asynccontextmanager
 async def lifespan(app):
     db.init_db()
+    log.info("playtime-collector starting · PS3 %s · poll %ss", config.PS3_HOST or "(unset)", config.POLL_INTERVAL)
     client = httpx.AsyncClient()
     tasks = [
         asyncio.create_task(poll_loop(client)),
         asyncio.create_task(trophy_loop(client)),
         asyncio.create_task(rarity_loop()),
+        asyncio.create_task(summary_loop()),
     ]
     try:
         yield
