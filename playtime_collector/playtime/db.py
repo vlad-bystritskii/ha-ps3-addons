@@ -158,6 +158,27 @@ def insert_closed_session(platform, account, title_id, title, seconds, when):
         conn.commit()
 
 
+def set_live_session(platform, account, title_id, title, seconds, when):
+    """Mirror the plugin's current.json as the single open ('currently playing')
+    session. DELETE-then-insert (not close): the authoritative closed session
+    arrives separately via sessions.jsonl, so this live row must never persist."""
+    with lock:
+        conn.execute("DELETE FROM sessions WHERE platform = ? AND is_open = 1", (platform,))
+        conn.execute(
+            "INSERT INTO sessions "
+            "(platform, account, title_id, title, started_at, ended_at, seconds, is_open) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, 1)",
+            (platform, account, title_id, title, when, when, max(seconds, 0)),
+        )
+        conn.commit()
+
+
+def clear_live_session(platform):
+    with lock:
+        conn.execute("DELETE FROM sessions WHERE platform = ? AND is_open = 1", (platform,))
+        conn.commit()
+
+
 def time_filter(platform, frm, to):
     """Build a WHERE clause filtering by platform and the session start time.
 

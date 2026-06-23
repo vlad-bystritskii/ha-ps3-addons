@@ -4,9 +4,12 @@ webMAN's own per-session "Play" timer is used as the session length when
 available (accurate), otherwise we fall back to counting poll intervals.
 """
 import asyncio
+import json
 import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+import httpx
 
 from . import config, db, psn, trophies
 from .ps3 import fetch_snapshot, list_profiles, resolve_username
@@ -16,6 +19,10 @@ log = logging.getLogger("playtime")
 # Heartbeat: log "still playing" at most once per this many seconds of a session.
 HEARTBEAT_SECONDS = 900
 _last_heartbeat = 0
+
+# Set by plugin_sync_loop when the on-console plugin log is present. While true the
+# plugin is the source of truth for sessions and the LAN poller defers (no double count).
+PLUGIN_ACTIVE = False
 
 
 def fmt_dur(seconds):
@@ -59,6 +66,14 @@ def handle_snapshot(snapshot, account):
     global _last_heartbeat
     platform = config.PLATFORM
     now = db.now_iso()
+
+    # The on-console plugin is the source of truth for sessions; when it's active
+    # the LAN poller must not also write sessions (would double count). It still
+    # records liveness so /health reflects that we're reaching the console.
+    if PLUGIN_ACTIVE:
+        if snapshot.online:
+            db.set_meta("last_poll_at", now)
+        return
 
     # Offline (console off / HEN not enabled) or at the home menu: close any
     # running session so we never count time while nothing is playing.
@@ -123,9 +138,127 @@ async def poll_loop(client):
         await asyncio.sleep(config.POLL_INTERVAL)
 
 
+PLUGIN_BASE = "http://%s/dev_hdd0/playtime/"
+
+
+async def _resolve_account(client, account_field):
+    """Map a plugin 'account' (the home/<id> 8-digit) to a username; fall back."""
+    home_id = str(account_field or "")
+    if home_id.isdigit():
+        name = await resolve_username(config.PS3_HOST, client, home_id)
+        if name:
+            return name
+        return "ps3-" + home_id
+    return home_id or config.ACCOUNT
+
+
+async def ingest_sessions(client):
+    """Pull the plugin's append-only sessions.jsonl and store new lines.
+
+    Returns True if the plugin log is reachable (=> plugin is the source of truth).
+    A byte offset is kept in meta so each line is ingested exactly once.
+    """
+    try:
+        resp = await client.get(PLUGIN_BASE % config.PS3_HOST + "sessions.jsonl", timeout=10.0)
+    except (httpx.HTTPError, OSError):
+        return False
+    if resp.status_code == 404:
+        return False  # plugin not installed / nothing logged yet
+    resp.raise_for_status()
+
+    data = resp.content
+    offset = int(db.get_meta("plugin_offset") or 0)
+    if len(data) < offset:
+        offset = 0  # log was reset (e.g. plugin reinstalled)
+
+    chunk = data[offset:]
+    cut = chunk.rfind(b"\n")
+    if cut < 0:
+        return True  # no complete new line yet
+
+    inserted = 0
+    for raw in chunk[:cut].split(b"\n"):
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            s = json.loads(raw)
+        except ValueError:
+            continue
+        seconds = int(s.get("seconds", 0))
+        if seconds <= 0:
+            continue
+        account = await _resolve_account(client, s.get("account"))
+        if account in config.IGNORE_ACCOUNTS:
+            continue
+        db.insert_closed_session(
+            config.PLATFORM, account, s.get("titleId", "?"), s.get("title"), seconds, db.now_iso())
+        inserted += 1
+        log.info("⏹ %s — %s · %s (plugin)",
+                 account, s.get("title") or s.get("titleId"), fmt_dur(seconds))
+
+    db.set_meta("plugin_offset", str(offset + cut + 1))
+    if inserted:
+        log.info("ingested %d plugin session(s)", inserted)
+    return True
+
+
+async def ingest_current(client):
+    """Mirror the plugin's current.json as the live 'currently playing' session."""
+    try:
+        resp = await client.get(PLUGIN_BASE % config.PS3_HOST + "current.json", timeout=10.0)
+    except (httpx.HTTPError, OSError):
+        return
+    body = resp.content.strip() if resp.status_code == 200 else b""
+    if not body:
+        db.clear_live_session(config.PLATFORM)
+        return
+    try:
+        s = json.loads(body)
+    except ValueError:
+        db.clear_live_session(config.PLATFORM)
+        return
+    account = await _resolve_account(client, s.get("account"))
+    if account in config.IGNORE_ACCOUNTS:
+        db.clear_live_session(config.PLATFORM)
+        return
+    db.set_live_session(
+        config.PLATFORM, account, s.get("titleId", "?"), s.get("title"),
+        int(s.get("seconds", 0)), db.now_iso())
+
+
+async def plugin_sync_loop(client):
+    """Sync the on-console plugin log into the DB. Idempotent; safe with the LAN poll."""
+    global PLUGIN_ACTIVE
+    log.info("plugin sync every %ss (%ssessions.jsonl)", config.PLUGIN_SYNC_INTERVAL,
+             PLUGIN_BASE % config.PS3_HOST)
+    while True:
+        try:
+            active = await ingest_sessions(client)
+            if active and not PLUGIN_ACTIVE:
+                log.info("on-console plugin detected — it is now the source of truth")
+            elif PLUGIN_ACTIVE and not active:
+                log.info("on-console plugin no longer reachable — LAN poller resumes")
+            PLUGIN_ACTIVE = active
+            if active:
+                db.set_meta("last_poll_at", db.now_iso())
+                await ingest_current(client)
+        except Exception:
+            log.exception("plugin sync failed")
+        await asyncio.sleep(config.PLUGIN_SYNC_INTERVAL)
+
+
 async def refresh_trophies(client):
-    """Scan every tracked profile's trophy sets and store the summaries."""
+    """Scan every tracked profile's trophy sets and store the summaries.
+
+    Returns the number of profiles found. 0 means the listing came back empty
+    (console busy / transient) — the caller should retry soon rather than treat
+    it as a clean "nothing to do".
+    """
     profiles = await list_profiles(config.PS3_HOST, client)
+    if not profiles:
+        log.warning("trophy scan found 0 profiles (console busy?) — will retry soon")
+        return 0
     for profile_id, name in profiles:
         # Skip if the name didn't resolve: it gates the ignore-list, and we don't
         # want ugly ps3-<id> rows or to accidentally scan a technical account.
@@ -150,6 +283,7 @@ async def refresh_trophies(client):
                     await cache_icon(client, profile_id, account, summary["npcommid"], item["id"])
     db.set_meta("trophies_refreshed_at", db.now_iso())
     log.info("trophies refreshed for %s profile(s)", len(profiles))
+    return len(profiles)
 
 
 async def trophy_loop(client):
@@ -160,7 +294,9 @@ async def trophy_loop(client):
             # retry soon instead of waiting a full interval, so a console that
             # was off at startup gets scanned shortly after it comes up.
             if (await fetch_snapshot(config.PS3_HOST, client)).online:
-                await refresh_trophies(client)
+                scanned = await refresh_trophies(client)
+                if not scanned:
+                    delay = min(120, config.TROPHY_INTERVAL)
             else:
                 delay = min(300, config.TROPHY_INTERVAL)
         except Exception:

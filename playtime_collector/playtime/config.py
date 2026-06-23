@@ -70,3 +70,17 @@ RARITY_INTERVAL = int(get("rarity_interval", "RARITY_INTERVAL", 86400))
 
 # How often to log a "last 24h" activity summary, in seconds.
 SUMMARY_INTERVAL = int(get("summary_interval", "SUMMARY_INTERVAL", 86400))
+
+# How often to pull the on-console plugin log (sessions.jsonl / current.json), in
+# seconds. The PS3 playtime plugin writes these; when present it is the source of
+# truth for sessions (the LAN poller then only reports, to avoid double counting).
+PLUGIN_SYNC_INTERVAL = int(get("plugin_sync_interval", "PLUGIN_SYNC_INTERVAL", 60))
+
+# Where playtime comes from. Each install can pick whichever it has:
+#   "auto"   - use the on-console plugin when its log is present, else LAN polling
+#   "webman" - LAN polling of cpursx only (no on-console plugin needed)
+#   "plugin" - only the on-console plugin log (sessions.jsonl / current.json)
+# Trophy and rarity collection run regardless of this setting.
+PLAYTIME_SOURCE = str(get("playtime_source", "PLAYTIME_SOURCE", "auto")).strip().lower()
+if PLAYTIME_SOURCE not in ("auto", "webman", "plugin"):
+    PLAYTIME_SOURCE = "auto"

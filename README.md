@@ -1,56 +1,120 @@
-# Playtime Collector — Home Assistant add-on
+<div align="center">
 
-Track game **playtime** and **trophies** from a jailbroken **PS3** and expose them
-over a small JSON API — without installing anything on the console.
+# 🕹️ Playtime Collector
 
-The PS3 already runs an HTTP server ([webMAN MOD]) while HEN is enabled, so an
-always-on collector (this add-on, running on Home Assistant) just polls it,
-attributes playtime to the active PS3 profile, reads trophies off the console, and
-stores everything in SQLite. The schema is multi-platform/multi-account, so other
-consoles can push data later via `/ingest`.
+**A Home Assistant add-on that tracks PlayStation 3 playtime & trophies — and serves them as a clean JSON API.**
+
+Point it at your jailbroken PS3 and get per-profile playtime, full trophy lists, and
+optional global PSN rarity — ready for dashboards, bots, or your own stats site.
+
+![home assistant](https://img.shields.io/badge/Home%20Assistant-add--on-41BDF5?logo=home-assistant&logoColor=white)
+![console](https://img.shields.io/badge/console-PS3%20HEN%20%2F%20CFW-003791)
+![api](https://img.shields.io/badge/API-JSON%20over%20HTTP-success)
+![license](https://img.shields.io/badge/license-MIT-blue)
+
+</div>
+
+---
+
+## What it does
+
+Your jailbroken PS3 already runs an HTTP server ([webMAN MOD]) while HEN is enabled.
+This always-on add-on (running on your Home Assistant box) turns that into a proper
+data source:
+
+- ⏱️ **Playtime** per **profile** and **game** — who played what, for how long.
+- 🏆 **Trophies** read **straight off the console** — so they work even for profiles
+  that were never synced to PSN.
+- 💎 **Global PSN rarity** (optional) — enrich trophies with the % of players who earned them.
+- 🌐 **Clean JSON API** with an optional auth token — poll it from anywhere.
+- 🗄️ **SQLite storage**, multi-platform/multi-account schema (other consoles can push later).
 
 [webMAN MOD]: https://github.com/aldostools/webMAN-MOD
 
-## Install (Home Assistant)
+## 🔀 Two ways to collect — pick whatever you have
 
-1. **Settings → Add-ons → Add-on Store → ⋮ (top right) → Repositories.**
+| `playtime_source` | How it works | Needs |
+|---|---|---|
+| **`webman`** | The add-on polls the console's `cpursx.ps3` over the LAN and builds sessions itself. | Nothing on the console |
+| **`plugin`** | Ingests the log written by the on-console [PS3PlaytimeTracker] plugin — captures play **even off-network** (console taken elsewhere), with no polling gaps. | The plugin installed |
+| **`auto`** *(default)* | Uses the plugin's log when present, otherwise LAN polling. With both, the plugin is the source of truth (no double counting). | — |
+
+[PS3PlaytimeTracker]: https://github.com/vlad-bystritskii/PS3PlaytimeTracker
+
+> Trophies and PSN rarity are collected regardless of this setting.
+
+## 📥 Install
+
+1. In Home Assistant: **Settings → Add-ons → Add-on Store → ⋮ → Repositories**.
 2. Add this repository URL:
    ```
    https://github.com/vlad-bystritskii/ha-ps3-addon
    ```
-3. Install **Playtime Collector** from the store, set the options
-   (`ps3_host`, `auth_token`, …), and start it.
+3. Install **Playtime Collector**, set `ps3_host` (and a long `auth_token`), and start it.
 
-[![Open your Home Assistant instance and show the add add-on repository dialog with a specific repository URL pre-filled.](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fvlad-bystritskii%2Fha-ps3-addon)
+[![Add repository to your Home Assistant](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fvlad-bystritskii%2Fha-ps3-addon)
 
-Add-on configuration and options are documented in
-[`playtime_collector/DOCS.md`](playtime_collector/DOCS.md).
+## ⚙️ Configuration
 
-## API
+| Option | Default | Description |
+|---|---|---|
+| `ps3_host` | — | PS3 IP address (required), e.g. `192.168.1.72` |
+| `playtime_source` | `auto` | `auto` / `webman` / `plugin` (see above) |
+| `poll_interval` | `30` | Seconds between LAN polls |
+| `trophy_interval` | `1800` | Seconds between trophy scans |
+| `ignore_accounts` | `Vlad` | Comma-separated profiles to skip (e.g. technical ones) |
+| `auth_token` | empty | If set, required in the `X-Auth-Token` header |
+| `psn_npsso` | empty | Optional PSN NPSSO token for global trophy rarity |
 
-The full HTTP/JSON contract is in [`CONTRACT.md`](CONTRACT.md): playtime
-(`/stats`, `/sessions`), trophies (`/trophies`, per-game detail, icons), time
-ranges, and the `/ingest` push endpoint for future platforms.
+Full option docs: [`playtime_collector/DOCS.md`](playtime_collector/DOCS.md).
 
-## How it works
+## 🌐 API
 
-- Polls `http://<ps3>/cpursx.ps3`; when a game runs it exposes the title id, the
-  name, webMAN's per-session play timer, and the active profile.
-- Playtime is attributed to the resolved PS3 username; technical accounts can be
-  ignored (`ignore_accounts`).
-- Trophies are read from `home/<profile>/trophy/<NPWR>/` (`TROPCONF.SFM` +
-  `TROPUSR.DAT`) and keyed by `npcommid` — the same id PSN uses.
+Served on port `3301` (send the optional `X-Auth-Token` header):
 
-## Limitations
+```
+GET /stats                                playtime totals per profile/game (+ ?from=&to=)
+GET /sessions                             raw sessions
+GET /trophies                             trophy summary per profile
+GET /trophies/{account}                   full trophy list for a profile
+GET /trophies/{account}/{npwr}            per-trophy detail (earned, rarity, icon URL)
+GET /trophy-icon/{account}/{npwr}/{id}    trophy icon PNG
+GET /health
+```
 
-- HEN must be on (the PS3 is invisible otherwise — handled as idle, not an error).
-- PS2-emulator titles drop HEN/webMAN and can't be tracked.
-- Trophies are read locally (for profiles not synced to PSN).
+Full HTTP/JSON contract: [`CONTRACT.md`](CONTRACT.md).
 
-## Development
+```jsonc
+// GET /stats  (excerpt)
+{
+  "currentlyPlaying": [{ "account": "Eplring", "titleName": "inFamous", "totalSeconds": 4187 }],
+  "games": [
+    { "account": "Eplring", "titleId": "BCES00609", "titleName": "inFamous",
+      "totalSeconds": 4187, "sessions": 3 }
+  ]
+}
+```
 
-The add-on is a small Python service (FastAPI + SQLite + httpx) in
-`playtime_collector/playtime/`. Run it standalone:
+## 🏆 Trophies & rarity
+
+Trophies are read locally from the console (`TROPCONF.SFM` + `TROPUSR.DAT`, keyed by
+`npcommid` — the same id PSN uses), so they're available even for offline profiles
+and even while the PS3 is off (icons are cached). Set `psn_npsso` to a PSN account's
+NPSSO token to add the global **earn rate** and **rare tier** to each trophy — get it
+by logging into <https://www.playstation.com>, then opening
+<https://ca.account.sony.com/api/v1/ssocookie> and copying the `npsso` value.
+
+## 🔗 Going further: the on-console plugin
+
+Want to capture playtime when the console is **away from your network**? Install the
+companion **[PS3PlaytimeTracker]** plugin on the PS3 — it logs sessions on the
+console itself, and this add-on ingests them automatically (`playtime_source: plugin`
+or `auto`).
+
+## 🛠️ Development
+
+A small Python service (FastAPI + SQLite + httpx) in `playtime_collector/playtime/`.
+Run it standalone:
 
 ```sh
 cd playtime_collector
@@ -59,6 +123,12 @@ pip install -r requirements.txt
 PS3_HOST=192.168.1.x AUTH_TOKEN=secret python -m playtime
 ```
 
-## License
+## 📝 Notes
 
-MIT — see [LICENSE](LICENSE).
+- The PS3 only serves webMAN while HEN is enabled, so it's reachable while gaming;
+  an unreachable console is treated as idle, not an error.
+- PS2-emulator titles drop HEN/webMAN access and can't be tracked over the LAN.
+
+## 📜 License
+
+MIT — see [LICENSE](LICENSE). For homebrew / personal use with your own console.

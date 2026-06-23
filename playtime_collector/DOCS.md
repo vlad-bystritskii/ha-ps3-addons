@@ -9,6 +9,7 @@ JSON API. Nothing is installed on the console.
 | Option            | Default | Description                                             |
 |-------------------|---------|---------------------------------------------------------|
 | `ps3_host`        | —       | PS3 IP address (required), e.g. `192.168.1.72`          |
+| `playtime_source` | `auto`  | Where playtime comes from: `auto` / `webman` / `plugin` |
 | `poll_interval`   | `30`    | Seconds between playtime polls                          |
 | `trophy_interval` | `1800`  | Seconds between trophy scans                            |
 | `account`         | `ps3`   | Fallback player label if a profile can't be resolved    |
@@ -27,6 +28,23 @@ ignore_accounts: "Vlad"
 auth_token: "change-me-to-a-long-secret"
 psn_npsso: ""
 ```
+
+### Playtime source
+
+There are two independent ways to collect playtime — pick whichever you have:
+
+- **`webman`** — the add-on polls the console's `cpursx.ps3` over the LAN and builds
+  sessions itself. Nothing is installed on the PS3. Only captures time while the
+  console is reachable on your network.
+- **`plugin`** — an on-console plugin ([ps3-playtime-plugin]) logs every session to
+  `/dev_hdd0/playtime/` even when no observer is watching (e.g. the console taken
+  elsewhere); the add-on ingests that log when it can reach the console. No ~30s
+  polling gaps, and it captures away-from-home play.
+- **`auto`** (default) — use the plugin's log when it's present, otherwise fall back
+  to LAN polling. With both, the plugin is the source of truth and LAN polling does
+  not double-count.
+
+Trophy and rarity collection run regardless of this setting.
 
 ### Trophy rarity (optional)
 

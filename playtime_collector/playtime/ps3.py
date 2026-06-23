@@ -11,6 +11,7 @@ How detection works (checked against webMAN MOD 1.47.48):
 - The PS3 is reachable only while HEN is enabled, i.e. while gaming, so a
   connection error just means "offline" (console off or HEN not enabled).
 """
+import asyncio
 import re
 from dataclasses import dataclass
 
@@ -86,14 +87,26 @@ PROFILE_DIR_RE = re.compile(r'href="(\d{8})/?"')
 
 
 async def list_profiles(host, client):
-    """List local profiles as (profile_id, username). Used for trophy scanning."""
-    try:
-        response = await client.get("http://" + host + "/dev_hdd0/home/", timeout=5.0)
-        response.raise_for_status()
-    except (httpx.HTTPError, OSError):
+    """List local profiles as (profile_id, username). Used for trophy scanning.
+
+    The directory listing is retried: right after the console/HEN comes up webMAN
+    can be briefly busy, and a single failed GET here would otherwise wipe the
+    whole scan (no profiles -> nothing scanned for a full interval).
+    """
+    text = None
+    for attempt in range(3):
+        try:
+            response = await client.get("http://" + host + "/dev_hdd0/home/", timeout=5.0)
+            response.raise_for_status()
+            text = response.text
+            break
+        except (httpx.HTTPError, OSError):
+            if attempt < 2:
+                await asyncio.sleep(1.0)
+    if not text:
         return []
     profiles = []
-    for profile_id in sorted(set(PROFILE_DIR_RE.findall(response.text))):
+    for profile_id in sorted(set(PROFILE_DIR_RE.findall(text))):
         profiles.append((profile_id, await resolve_username(host, client, profile_id)))
     return profiles
 
