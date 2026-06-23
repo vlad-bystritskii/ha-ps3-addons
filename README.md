@@ -16,12 +16,12 @@ consoles can push data later via `/ingest`.
 1. **Settings → Add-ons → Add-on Store → ⋮ (top right) → Repositories.**
 2. Add this repository URL:
    ```
-   https://github.com/vlad-bystritskii/ha-ps3-addons
+   https://github.com/vlad-bystritskii/ha-ps3-addon
    ```
 3. Install **Playtime Collector** from the store, set the options
    (`ps3_host`, `auth_token`, …), and start it.
 
-[![Open your Home Assistant instance and show the add add-on repository dialog with a specific repository URL pre-filled.](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fvlad-bystritskii%2Fha-ps3-addons)
+[![Open your Home Assistant instance and show the add add-on repository dialog with a specific repository URL pre-filled.](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fvlad-bystritskii%2Fha-ps3-addon)
 
 Add-on configuration and options are documented in
 [`playtime_collector/DOCS.md`](playtime_collector/DOCS.md).
