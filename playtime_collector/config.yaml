@@ -1,5 +1,5 @@
 name: Playtime Collector
-version: "0.7.0"
+version: "0.7.1"
 slug: playtime_collector
 description: Track PS3 (webMAN MOD) playtime and trophies and expose them over a JSON API
 url: https://github.com/vlad-bystritskii/ha-ps3-addons
@@ -8,6 +8,7 @@ arch:
   - aarch64
 init: false
 boot: auto
+webui: "http://[HOST]:[PORT:3301]/"
 ports:
   "3301/tcp": 3301
 ports_description:
