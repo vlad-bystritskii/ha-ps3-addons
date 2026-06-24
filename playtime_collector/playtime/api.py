@@ -13,7 +13,10 @@ from contextlib import asynccontextmanager
 
 from . import config, db, ps3, trophies
 from . import dashboard as dashpage
-from .poller import poll_loop, trophy_loop, rarity_loop, summary_loop, plugin_sync_loop
+from .poller import (
+    poll_loop, trophy_loop, rarity_loop, summary_loop, plugin_sync_loop,
+    avatar_path, cache_avatar,
+)
 
 log = logging.getLogger("playtime")
 
@@ -332,6 +335,29 @@ async def trophy_icon(
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(png)
     return Response(content=png, media_type="image/png", headers=headers)
+
+
+@app.get("/avatar/{account}")
+async def avatar(
+    account: str,
+    token: str | None = Query(default=None),
+    x_auth_token: str | None = Header(default=None),
+):
+    """Profile avatar PNG. Served from disk cache; fetched + cached live on a miss.
+    Left open (no token) so the dashboard's <img> tags can load it. 404 when the
+    console has no avatar for this profile (the dashboard falls back to initials)."""
+    headers = {"Cache-Control": "max-age=86400"}
+    path = avatar_path(account)
+    if path.exists():
+        return Response(content=path.read_bytes(), media_type="image/png", headers=headers)
+    async with httpx.AsyncClient() as client:
+        profile_id = await ps3.profile_id_for(config.PS3_HOST, client, account)
+        if not profile_id:
+            raise HTTPException(status_code=404, detail="unknown account")
+        await cache_avatar(client, profile_id, account)
+    if path.exists():
+        return Response(content=path.read_bytes(), media_type="image/png", headers=headers)
+    raise HTTPException(status_code=404, detail="no avatar")
 
 
 @app.delete("/sessions")

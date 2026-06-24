@@ -119,6 +119,37 @@ async def profile_id_for(host, client, account):
     return None
 
 
+# PS3 caches a profile's avatar on the HDD. The PSN online avatar lands at
+# friendim/avatar/me.png; some firmwares/setups also keep a generic avatar.png.
+# We try a few known spots and take the first that returns a PNG.
+AVATAR_PATHS = (
+    "friendim/avatar/me.png",
+    "friendim/avatar/avatar.png",
+    "avatar.png",
+)
+
+
+async def fetch_avatar(host, client, profile_id):
+    """Fetch a local profile's cached avatar PNG, or None if the console has none.
+
+    Reads it straight off the HDD via webMAN (same mechanism as localusername and
+    trophy icons), so it works while the console is reachable and is then cached to
+    disk by the caller to survive the console being off / lent out."""
+    if not profile_id:
+        return None
+    base = "http://" + host + "/dev_hdd0/home/" + profile_id + "/"
+    for rel in AVATAR_PATHS:
+        try:
+            response = await client.get(base + rel, timeout=5.0)
+            response.raise_for_status()
+        except (httpx.HTTPError, OSError):
+            continue
+        png = response.content
+        if png[:8] == b"\x89PNG\r\n\x1a\n":  # ignore webMAN 404 HTML served as 200
+            return png
+    return None
+
+
 async def resolve_username(host, client, profile_id):
     """Resolve a local profile id (e.g. 00000003) to its PS3 username
     (e.g. Ashe-raddo) by reading dev_hdd0/home/<id>/localusername. Cached."""

@@ -12,7 +12,7 @@ from pathlib import Path
 import httpx
 
 from . import config, db, psn, trophies
-from .ps3 import fetch_snapshot, list_profiles, resolve_username
+from .ps3 import fetch_avatar, fetch_snapshot, list_profiles, resolve_username
 
 log = logging.getLogger("playtime")
 
@@ -57,6 +57,28 @@ async def cache_icon(client, profile_id, account, npcommid, trophy_id):
     try:
         png = await trophies.fetch_icon(config.PS3_HOST, client, profile_id, npcommid, trophy_id)
     except Exception:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(png)
+
+
+def avatar_path(account):
+    return Path(config.ICON_DIR) / "avatars" / (account + ".png")
+
+
+async def cache_avatar(client, profile_id, account):
+    """Save a profile's avatar to disk so it's served with the console off.
+
+    Refetched only when missing — avatars change rarely and the cache is what
+    keeps faces visible while the console is offline / lent out."""
+    path = avatar_path(account)
+    if path.exists():
+        return
+    try:
+        png = await fetch_avatar(config.PS3_HOST, client, profile_id)
+    except Exception:
+        return
+    if not png:
         return
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(png)
@@ -265,6 +287,7 @@ async def refresh_trophies(client):
         if not name or name in config.IGNORE_ACCOUNTS:
             continue
         account = name
+        await cache_avatar(client, profile_id, account)
         try:
             sets = await trophies.list_sets(config.PS3_HOST, client, profile_id)
         except Exception:

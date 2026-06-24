@@ -76,6 +76,7 @@ h2{font-size:12px;color:var(--dim);text-transform:uppercase;letter-spacing:.8px;
 .av{width:42px;height:42px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;
 font-weight:700;font-size:18px;color:#fff;box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}
 .av.sq{border-radius:11px}
+img.av{object-fit:cover;background:#1a1a22}
 .row .mid{flex:1;min-width:0}.row .name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .row .who{color:var(--dim);font-size:12px;margin-top:2px}
 .row .time{color:var(--accent);font-weight:700;white-space:nowrap;font-size:15px}
@@ -133,6 +134,8 @@ const fmt=s=>{s=Math.round(s||0);const h=s/3600|0,m=(s%3600)/60|0;return h?h+'h 
 const DOW=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 const hue=s=>{let h=0;for(const c of String(s))h=c.charCodeAt(0)+((h<<5)-h);return Math.abs(h)%360};
 const av=(s,sq)=>`<div class="av${sq?' sq':''}" style="background:linear-gradient(135deg,hsl(${hue(s)},55%,42%),hsl(${(hue(s)+40)%360},55%,30%))">${esc(String(s||'?')[0].toUpperCase())}</div>`;
+// player avatar: real PS3 face when cached, else fall back to the initials circle
+const pav=(s)=>`<img class="av" loading="lazy" src="${ICONBASE}/avatar/${encodeURIComponent(s||'?')}.png${TOKEN?('?token='+TOKEN):''}" data-s="${esc(s||'?')}" onerror="this.outerHTML=av(this.dataset.s)">`;
 
 function players(){
   const m={};
@@ -153,7 +156,7 @@ function renderFeed(){
   const f=D.feed||[];if(!f.length)return '';
   let h='<h2>Trophy feed</h2>',last='';
   f.forEach(t=>{const date=(t.earnedAt||'').slice(0,10),key=t.account+'|'+(t.game||'')+'|'+date;
-    if(key!==last){last=key;h+=`<div class="fh">${av(t.account)}<div><b>${esc(t.account)}</b> · ${esc(t.game||'')}<div class="fd">${esc(date)}</div></div></div>`}
+    if(key!==last){last=key;h+=`<div class="fh">${pav(t.account)}<div><b>${esc(t.account)}</b> · ${esc(t.game||'')}<div class="fd">${esc(date)}</div></div></div>`}
     const rate=(t.rate!=null)?`<span class="trate">${(+t.rate).toFixed(1)}%</span>`:'';
     h+=`<div class="fi g-${esc((t.grade||'').toLowerCase())}"><img class="ticon" loading="lazy" src="${tIcon(t)}" onerror="this.style.visibility='hidden'"><div class="ftext"><div class="tname">${esc(t.name)}${rate}</div><div class="tdetail">${esc(t.detail||'')}</div><div class="ftime">${esc((t.earnedAt||'').slice(11,16))}</div></div></div>`});
   return h;
@@ -170,9 +173,9 @@ function render(){
     <div class="chip"><b>${D.summary.sessions}</b><span>sessions</span></div>
     <div class="chip"><b>${g.length}</b><span>games</span></div>
     <div class="chip"><b>${p.length}</b><span>players</span></div></div>`;
-  if(D.now.length)h+='<h2>Now playing</h2>'+D.now.map(n=>`<div class="now"><span class="dot"></span>${av(n.account)}<div class="mid"><div class="name">${esc(n.title)}</div><div class="who">${esc(n.account)} · live</div></div></div>`).join('');
+  if(D.now.length)h+='<h2>Now playing</h2>'+D.now.map(n=>`<div class="now"><span class="dot"></span>${pav(n.account)}<div class="mid"><div class="name">${esc(n.title)}</div><div class="who">${esc(n.account)} · live</div></div></div>`).join('');
   h+='<div class="cols">';
-  h+='<div class="col"><h2>Top players</h2><div class="card">'+(p.length?p.map((x,i)=>`<div class="row" onclick="openPlayer('${esc(x.account)}')"><span class="rank">${i+1}</span>${av(x.account)}<div class="mid"><div class="name">${esc(x.account)}</div><div class="who">${x.n} sess · ${x.games} games · 🏆${x.tro}</div></div><div class="time">${fmt(x.sec)}</div><div class="barwrap"><i style="width:${x.sec*100/maxp}%"></i></div></div>`).join(''):'<div class="row">—</div>')+'</div></div>';
+  h+='<div class="col"><h2>Top players</h2><div class="card">'+(p.length?p.map((x,i)=>`<div class="row" onclick="openPlayer('${esc(x.account)}')"><span class="rank">${i+1}</span>${pav(x.account)}<div class="mid"><div class="name">${esc(x.account)}</div><div class="who">${x.n} sess · ${x.games} games · 🏆${x.tro}</div></div><div class="time">${fmt(x.sec)}</div><div class="barwrap"><i style="width:${x.sec*100/maxp}%"></i></div></div>`).join(''):'<div class="row">—</div>')+'</div></div>';
   h+='<div class="col"><h2>Top games</h2><div class="card">'+(g.length?g.map((x,i)=>`<div class="row" onclick="openGame('${esc(x.titleId)}')"><span class="rank">${i+1}</span>${av(x.title,1)}<div class="mid"><div class="name">${esc(x.title)}</div><div class="who">${esc(x.account)} · ${x.sessions} sess</div></div><div class="time">${fmt(x.totalSeconds)}</div><div class="barwrap"><i style="width:${x.totalSeconds*100/maxg}%"></i></div></div>`).join(''):'<div class="row">No sessions yet</div>')+'</div></div>';
   h+='</div>';
   h+='<h2>By day</h2>'+chart(dailyBars(D.sessions,14),170);
@@ -196,7 +199,7 @@ function openPlayer(acc){
   const topg=Object.values(gm).sort((a,b)=>b.sec-a.sec);
   const avg=n?tot/n:0,rec=ss.reduce((m,s)=>Math.max(m,s.seconds),0);
   const tro=D.trophies.filter(t=>t.account===acc);
-  let h=`<div class="mh">${av(acc)}<h3>${esc(acc)}</h3><span class="x" onclick="closeM()">✕</span></div>`;
+  let h=`<div class="mh">${pav(acc)}<h3>${esc(acc)}</h3><span class="x" onclick="closeM()">✕</span></div>`;
   h+=`<div class="mstats"><div class="s"><b>${fmt(tot)}</b><span>total</span></div><div class="s"><b>${n}</b><span>sessions</span></div><div class="s"><b>${topg.length}</b><span>games</span></div><div class="s"><b>${fmt(avg)}</b><span>avg session</span></div><div class="s"><b>${fmt(rec)}</b><span>longest</span></div><div class="s"><b>${esc(bestDow(ss))}</b><span>best weekday</span></div><div class="s"><b>${esc(peakDay(ss))}</b><span>peak day</span></div><div class="s"><b>${tro.reduce((x,t)=>x+t.earnedCount,0)}</b><span>trophies</span></div></div>`;
   h+='<div class="mcols"><div class="mcol"><h2>Top games</h2><div class="card">'+(topg.length?topg.slice(0,12).map(x=>`<div class="tp">${av(x.title,1)}<span class="name">${esc(x.title)}</span><span class="med">${x.n} sess</span><span class="pct">${fmt(x.sec)}</span></div>`).join(''):'<div class="tp">—</div>')+'</div></div>';
   h+='<div class="mcol"><h2>Sessions log</h2><div class="card" style="padding:4px 14px">'+(ss.length?ss.slice(0,22).map(s=>`<div class="jr"><span>${esc((s.started||'').slice(0,16).replace('T',' '))} · <b>${esc(s.title)}</b></span><span>${fmt(s.seconds)}</span></div>`).join(''):'—')+'</div></div></div>';
@@ -212,9 +215,9 @@ function openGame(tid){
   const tr=D.trophies.filter(t=>t.title===title);
   let h=`<div class="mh">${av(title,1)}<h3>${esc(title)}</h3><span class="x" onclick="closeM()">✕</span></div>`;
   h+=`<div class="mstats"><div class="s"><b>${fmt(tot)}</b><span>total</span></div><div class="s"><b>${ss.length}</b><span>sessions</span></div><div class="s"><b>${tops.length}</b><span>players</span></div><div class="s"><b>${esc(peakDay(ss))}</b><span>peak day</span></div></div>`;
-  h+='<div class="mcols"><div class="mcol"><h2>Top players</h2><div class="card">'+tops.map(x=>`<div class="tp">${av(x.a)}<span class="name">${esc(x.a)}</span><span class="med">${x.n} sess</span><span class="pct">${fmt(x.sec)}</span></div>`).join('')+'</div></div>';
+  h+='<div class="mcols"><div class="mcol"><h2>Top players</h2><div class="card">'+tops.map(x=>`<div class="tp">${pav(x.a)}<span class="name">${esc(x.a)}</span><span class="med">${x.n} sess</span><span class="pct">${fmt(x.sec)}</span></div>`).join('')+'</div></div>';
   h+='<div class="mcol"><h2>Sessions log</h2><div class="card" style="padding:4px 14px">'+(ss.length?ss.slice(0,22).map(s=>`<div class="jr"><span>${esc((s.started||'').slice(0,16).replace('T',' '))} · <b>${esc(s.account)}</b></span><span>${fmt(s.seconds)}</span></div>`).join(''):'—')+'</div></div></div>';
-  if(tr.length){h+='<h2>Trophies</h2><div class="card">'+tr.map(t=>{const pc=t.totalCount?Math.round(t.earnedCount*100/t.totalCount):0;return `<div class="tp">${av(t.account)}<span class="name">${esc(t.account)}</span><span class="med">${medals(t.earned)}</span><div class="pbar"><i style="width:${pc}%"></i></div><span class="pct">${t.earnedCount}/${t.totalCount}</span></div>`}).join('')+'</div>'}
+  if(tr.length){h+='<h2>Trophies</h2><div class="card">'+tr.map(t=>{const pc=t.totalCount?Math.round(t.earnedCount*100/t.totalCount):0;return `<div class="tp">${pav(t.account)}<span class="name">${esc(t.account)}</span><span class="med">${medals(t.earned)}</span><div class="pbar"><i style="width:${pc}%"></i></div><span class="pct">${t.earnedCount}/${t.totalCount}</span></div>`}).join('')+'</div>'}
   openM(h);
 }
 render();
