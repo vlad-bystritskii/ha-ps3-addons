@@ -12,6 +12,7 @@ from fastapi.responses import HTMLResponse
 from contextlib import asynccontextmanager
 
 from . import config, db, ps3, trophies
+from . import dashboard as dashpage
 from .poller import poll_loop, trophy_loop, rarity_loop, summary_loop, plugin_sync_loop
 
 log = logging.getLogger("playtime")
@@ -201,7 +202,7 @@ def _render_dashboard():
 @app.get("/", response_class=HTMLResponse)
 @app.get("/dashboard", response_class=HTMLResponse)
 def dashboard():
-    return _render_dashboard()
+    return dashpage.render()
 
 
 @app.get("/health")
