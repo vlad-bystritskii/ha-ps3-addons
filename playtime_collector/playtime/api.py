@@ -315,8 +315,8 @@ async def trophy_icon(
     token: str | None = Query(default=None),
     x_auth_token: str | None = Header(default=None),
 ):
-    """Trophy icon PNG. Served from disk cache; fetched + cached live on a miss."""
-    check_auth(x_auth_token or token)
+    """Trophy icon PNG. Served from disk cache; fetched + cached live on a miss.
+    Left open (no token) so the dashboard's <img> tags can load icons."""
     headers = {"Cache-Control": "max-age=86400"}
     path = Path(config.ICON_DIR) / account / npcommid / ("%d.png" % trophy_id)
     if path.exists():

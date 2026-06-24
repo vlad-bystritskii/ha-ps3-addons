@@ -387,6 +387,24 @@ def trophies_earned_since(since_iso):
     return [(r["account"], r["c"]) for r in rows]
 
 
+def recent_trophy_unlocks(platform, limit=50):
+    """Most recently unlocked trophies across all accounts, with game title +
+    global rarity, for the activity feed."""
+    with lock:
+        rows = conn.execute(
+            "SELECT ti.account, ti.npcommid, ti.trophy_id, ti.name, ti.detail, "
+            "ti.grade, ti.earned_at, tr.title AS game, ra.earned_rate "
+            "FROM trophy_items ti "
+            "LEFT JOIN trophies tr ON tr.platform=ti.platform AND tr.account=ti.account "
+            "AND tr.npcommid=ti.npcommid "
+            "LEFT JOIN trophy_rarity ra ON ra.npcommid=ti.npcommid AND ra.trophy_id=ti.trophy_id "
+            "WHERE ti.unlocked=1 AND ti.earned_at IS NOT NULL AND ti.platform=? "
+            "ORDER BY ti.earned_at DESC LIMIT ?",
+            (platform, limit),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
 def delete_sessions(account):
     with lock:
         cur = conn.execute("DELETE FROM sessions WHERE account = ?", (account,))

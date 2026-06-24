@@ -25,12 +25,17 @@ def build_data():
         "lastEarnedAt": t["lastEarnedAt"],
     } for t in db.query_trophies(config.PLATFORM, None)]
     summ = db.summary(None, None, None)
+    feed = [{
+        "account": r["account"], "game": r["game"], "npcommid": r["npcommid"],
+        "trophyId": r["trophy_id"], "name": r["name"], "detail": r["detail"],
+        "grade": r["grade"], "earnedAt": r["earned_at"], "rate": r["earned_rate"],
+    } for r in db.recent_trophy_unlocks(config.PLATFORM, 60)]
     return {
         "lastPoll": db.get_meta("last_poll_at"),
         "trackedSince": db.get_meta("tracked_since"),
         "now": [{"account": r["account"], "title": r["title"]} for r in open_rows],
         "summary": {"sec": summ["seconds_total"], "sessions": summ["sessions_total"]},
-        "games": games, "sessions": sess, "trophies": troph,
+        "games": games, "sessions": sess, "trophies": troph, "feed": feed,
     }
 
 
@@ -92,6 +97,18 @@ border-radius:5px 5px 0 0;min-height:3px;box-shadow:0 0 12px rgba(120,220,140,.1
 .tp .pbar{width:70px;height:6px;background:var(--barbg);border-radius:4px;overflow:hidden;flex:none}
 .tp .pbar i{display:block;height:100%;background:linear-gradient(90deg,#9b6,#5ad17a)}
 .acct{display:flex;align-items:center;gap:10px;margin:16px 0 8px;font-weight:700}
+.fh{display:flex;align-items:center;gap:10px;margin:18px 0 8px;color:var(--dim);font-size:13px}
+.fh b{color:var(--white)}.fh .fd{font-size:11px;color:#5a6c8a}
+.fi{display:flex;gap:13px;align-items:center;background:var(--panel);border:1px solid var(--line);
+border-left:3px solid #7a869c;border-radius:13px;padding:11px 14px;margin-bottom:8px}
+.fi.g-bronze{border-left-color:#cd7f32}.fi.g-silver{border-left-color:#c4ccd8}
+.fi.g-gold{border-left-color:#e8c34a}.fi.g-platinum{border-left-color:#7fd0ff}
+.ticon{width:56px;height:56px;border-radius:11px;flex:none;background:#0c1320;object-fit:cover;
+box-shadow:inset 0 0 0 1px rgba(255,255,255,.06)}
+.ftext{flex:1;min-width:0}.tname{font-weight:600}
+.trate{color:var(--accent);font-size:12px;font-weight:700;margin-left:6px}
+.tdetail{color:var(--dim);font-size:12px;margin-top:2px}
+.ftime{color:#5a6c8a;font-size:11px;margin-top:3px}
 .foot{color:var(--dim);font-size:11px;text-align:center;margin:26px 0 10px}
 .ov{position:fixed;inset:0;background:rgba(3,6,12,.82);backdrop-filter:blur(3px);display:none;
 align-items:flex-start;justify-content:center;padding:30px 14px;overflow:auto;z-index:9}.ov.on{display:flex}
@@ -110,6 +127,7 @@ a{color:var(--accent);text-decoration:none}
 <div class="ov" id="ov" onclick="if(event.target==this)closeM()"><div class="modal" id="modal"></div></div>
 <script>
 const D = /*DATA*/0;
+const ICONBASE="",TOKEN="";   /* prod: same-origin, open icon route */
 const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const fmt=s=>{s=Math.round(s||0);const h=s/3600|0,m=(s%3600)/60|0;return h?h+'h '+String(m).padStart(2,'0')+'m':(m?m+'m':s+'s')};
 const DOW=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
@@ -130,6 +148,16 @@ function chart(bars,h){const mx=Math.max(...bars.map(b=>b.sec),1);return `<div c
 function dow(ss){const a=[0,0,0,0,0,0,0];ss.forEach(s=>{const d=new Date(s.started);if(!isNaN(d))a[d.getDay()]+=s.seconds});
   return chart(a.map((v,i)=>({sec:v,label:DOW[i]})),110)}
 function medals(e){return `🥉${e.bronze||0} 🥈${e.silver||0} 🥇${e.gold||0} 🏆${e.platinum||0}`}
+function tIcon(t){return `${ICONBASE}/trophy-icon/${encodeURIComponent(t.account)}/${encodeURIComponent(t.npcommid)}/${t.trophyId}`+(TOKEN?('?token='+TOKEN):'')}
+function renderFeed(){
+  const f=D.feed||[];if(!f.length)return '';
+  let h='<h2>Trophy feed</h2>',last='';
+  f.forEach(t=>{const date=(t.earnedAt||'').slice(0,10),key=t.account+'|'+(t.game||'')+'|'+date;
+    if(key!==last){last=key;h+=`<div class="fh">${av(t.account)}<div><b>${esc(t.account)}</b> · ${esc(t.game||'')}<div class="fd">${esc(date)}</div></div></div>`}
+    const rate=(t.rate!=null)?`<span class="trate">${(+t.rate).toFixed(1)}%</span>`:'';
+    h+=`<div class="fi g-${esc((t.grade||'').toLowerCase())}"><img class="ticon" loading="lazy" src="${tIcon(t)}" onerror="this.style.visibility='hidden'"><div class="ftext"><div class="tname">${esc(t.name)}${rate}</div><div class="tdetail">${esc(t.detail||'')}</div><div class="ftime">${esc((t.earnedAt||'').slice(11,16))}</div></div></div>`});
+  return h;
+}
 
 function render(){
   const p=players().filter(x=>x.sec>0),g=[...D.games].sort((a,b)=>b.totalSeconds-a.totalSeconds);
@@ -148,10 +176,7 @@ function render(){
   h+='<div class="col"><h2>Top games</h2><div class="card">'+(g.length?g.map((x,i)=>`<div class="row" onclick="openGame('${esc(x.titleId)}')"><span class="rank">${i+1}</span>${av(x.title,1)}<div class="mid"><div class="name">${esc(x.title)}</div><div class="who">${esc(x.account)} · ${x.sessions} sess</div></div><div class="time">${fmt(x.totalSeconds)}</div><div class="barwrap"><i style="width:${x.totalSeconds*100/maxg}%"></i></div></div>`).join(''):'<div class="row">No sessions yet</div>')+'</div></div>';
   h+='</div>';
   h+='<h2>By day</h2>'+chart(dailyBars(D.sessions,14),170);
-  const ta={};D.trophies.forEach(t=>(ta[t.account]||(ta[t.account]=[])).push(t));
-  if(D.trophies.length){h+='<h2>Trophies</h2>';Object.keys(ta).forEach(a=>{h+=`<div class="acct">${av(a)} ${esc(a)}</div><div class="card">`;
-    ta[a].sort((x,y)=>y.earnedCount-x.earnedCount).forEach(t=>{const pc=t.totalCount?Math.round(t.earnedCount*100/t.totalCount):0;
-      h+=`<div class="tp">${av(t.title,1)}<span class="name">${esc(t.title)}</span><span class="med">${medals(t.earned)}</span><div class="pbar"><i style="width:${pc}%"></i></div><span class="pct">${t.earnedCount}/${t.totalCount}</span></div>`});h+='</div>'})}
+  h+=renderFeed();
   h+='<div class="foot">PS3 Playtime · auto-refresh 60s · <a href="/stats">/stats</a></div>';
   document.getElementById('app').innerHTML=h;
 }
