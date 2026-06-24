@@ -30,6 +30,8 @@ data source:
 - 🏆 **Trophies** read **straight off the console** — so they work even for profiles
   that were never synced to PSN.
 - 💎 **Global PSN rarity** (optional) — enrich trophies with the % of players who earned them.
+- ✨ **Clean game titles** — strips the trademark glyphs / promo tags games bake into their
+  own metadata (the XMB hides these too), via a configurable override list.
 - 🌐 **Clean JSON API** with an optional auth token — poll it from anywhere.
 - 🗄️ **SQLite storage**, multi-platform/multi-account schema (other consoles can push later).
 
@@ -69,8 +71,26 @@ data source:
 | `ignore_accounts` | `Vlad` | Comma-separated profiles to skip (e.g. technical ones) |
 | `auth_token` | empty | If set, required in the `X-Auth-Token` header |
 | `psn_npsso` | empty | Optional PSN NPSSO token for global trophy rarity |
+| `title_overrides` | defaults | Clean up game names (see below) |
 
 Full option docs: [`playtime_collector/DOCS.md`](playtime_collector/DOCS.md).
+
+### ✨ Clean titles
+
+Some PS3 games bake trademark glyphs (`®`, `™`) or promo tags into their own metadata
+(`PARAM.SFO`, trophy config) — the XMB hides these when it draws the name, and so does
+this add-on via the `title_overrides` option. Each entry is `"<match>=<replacement>"`,
+where `<match>` is a **title id** (e.g. `BCES01585`) or an **exact title string**
+(e.g. `KILLZONE®`); a title-id match wins. Overrides apply to new sessions, trophy sets
+and the live "now playing", **and retroactively to titles already stored** on start.
+Sensible defaults ship out of the box — edit the list in the add-on **Configuration** tab.
+
+```yaml
+title_overrides:
+  - "BCES01585=The Last of Us"
+  - "KILLZONE®=KILLZONE"
+  - "Dante's Inferno™=Dante's Inferno"
+```
 
 ## 🖥️ Web dashboard
 
