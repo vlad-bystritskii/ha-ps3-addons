@@ -75,7 +75,7 @@ async def cache_avatar(client, profile_id, account):
     if path.exists():
         return
     try:
-        png = await fetch_avatar(config.PS3_HOST, client, profile_id)
+        png = await fetch_avatar(config.PS3_HOST, client, profile_id, account)
     except Exception:
         return
     if not png:

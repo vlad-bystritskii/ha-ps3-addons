@@ -119,35 +119,62 @@ async def profile_id_for(host, client, account):
     return None
 
 
-# PS3 caches a profile's avatar on the HDD. The PSN online avatar lands at
-# friendim/avatar/me.png; some firmwares/setups also keep a generic avatar.png.
-# We try a few known spots and take the first that returns a PNG.
-AVATAR_PATHS = (
-    "friendim/avatar/me.png",
-    "friendim/avatar/avatar.png",
-    "avatar.png",
-)
+# A profile's avatar is NOT a file in its home dir. The chosen avatar lives in the
+# firmware gallery at /dev_flash/vsh/resource/explore/user/NNN.png (the PS3 stores
+# even custom avatars there once set locally — no PSN needed), and the per-profile
+# choice is recorded in the system registry /dev_flash2/etc/xRegistry.sys under the
+# key /setting/user/<id>/account/avatarurl.
+#
+# xRegistry value records are [4-byte tag][3 bytes][value]; the tag's FIRST byte is
+# a per-profile bucket shared by all of that profile's keys. So we match a profile's
+# avatarurl record to it via its utf8name record (whose value is the username we
+# already know) sharing the same first byte. This needs no registry hash function
+# and self-updates when the avatar is changed on the console.
+REGISTRY_PATH = "/dev_flash2/etc/xRegistry.sys"
+AVATAR_VALUE_RE = re.compile(rb"/dev_flash/vsh/resource/explore/user/\d+\.png")
 
 
-async def fetch_avatar(host, client, profile_id):
-    """Fetch a local profile's cached avatar PNG, or None if the console has none.
-
-    Reads it straight off the HDD via webMAN (same mechanism as localusername and
-    trophy icons), so it works while the console is reachable and is then cached to
-    disk by the caller to survive the console being off / lent out."""
-    if not profile_id:
+def _avatar_path_for(registry, username):
+    """Parse xRegistry bytes -> the avatar PNG path for username, or None."""
+    name_bytes = username.encode("utf-8")
+    # bucket byte = first byte of the utf8name record's 4-byte tag (tag sits 7 bytes
+    # before the value: 4 tag + 3 type/len bytes).
+    bucket = None
+    for m in re.finditer(re.escape(name_bytes), registry):
+        if m.start() >= 7:
+            bucket = registry[m.start() - 7]
+            break
+    if bucket is None:
         return None
-    base = "http://" + host + "/dev_hdd0/home/" + profile_id + "/"
-    for rel in AVATAR_PATHS:
-        try:
-            response = await client.get(base + rel, timeout=5.0)
-            response.raise_for_status()
-        except (httpx.HTTPError, OSError):
-            continue
-        png = response.content
-        if png[:8] == b"\x89PNG\r\n\x1a\n":  # ignore webMAN 404 HTML served as 200
-            return png
+    for m in AVATAR_VALUE_RE.finditer(registry):
+        if m.start() >= 7 and registry[m.start() - 7] == bucket:
+            return m.group(0).decode("latin-1")
     return None
+
+
+async def fetch_avatar(host, client, profile_id, username):
+    """Fetch a profile's chosen avatar PNG, or None if it can't be resolved.
+
+    Reads the registry + firmware gallery straight off the console via webMAN (same
+    mechanism as localusername and trophy icons). The caller caches the result to
+    disk so faces survive the console being off / lent out."""
+    if not username:
+        return None
+    try:
+        reg = (await client.get("http://" + host + REGISTRY_PATH, timeout=8.0))
+        reg.raise_for_status()
+    except (httpx.HTTPError, OSError):
+        return None
+    rel = _avatar_path_for(reg.content, username)
+    if not rel:
+        return None
+    try:
+        img = await client.get("http://" + host + rel, timeout=5.0)
+        img.raise_for_status()
+    except (httpx.HTTPError, OSError):
+        return None
+    png = img.content
+    return png if png[:8] == b"\x89PNG\r\n\x1a\n" else None
 
 
 async def resolve_username(host, client, profile_id):
