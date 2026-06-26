@@ -18,6 +18,8 @@ import io
 import json
 import logging
 import struct
+import urllib.error
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -78,20 +80,47 @@ def _ignored(title_id):
     return title_id in config.VITA_IGNORE_TITLES or title_id.startswith("NPXS")
 
 
+# GameTDB free cover database (real PS Vita box art) keyed by TITLEID, same
+# regions/order as the PS3 path. Tried before the console's square icon0.png.
+GAMETDB_REGIONS = ("EN", "US", "JA", "FR", "DE", "ES")
+
+
+def _is_image(b):
+    return b[:8] == b"\x89PNG\r\n\x1a\n" or b[:3] == b"\xff\xd8\xff"  # PNG or JPEG
+
+
+def _fetch_gametdb_cover(title_id):
+    """Best-effort GameTDB PS Vita cover bytes (PNG/JPEG) for title_id, or None.
+    Uses stdlib urllib because this runs in a sync FTP worker thread (no httpx)."""
+    for region in GAMETDB_REGIONS:
+        url = "https://art.gametdb.com/psv/cover/%s/%s.jpg" % (region, title_id)
+        try:
+            with urllib.request.urlopen(url, timeout=8) as resp:
+                data = resp.read()
+        except (urllib.error.URLError, OSError, ValueError):
+            continue
+        if data and _is_image(data):
+            return data
+    return None
+
+
 def _cache_icon(ftp, title_id):
-    """Fetch the Vita app's icon0.png over FTP and cache it where /game-icon serves
-    it (ICON_DIR/games/<titleId>). Cached once; skipped if already present or absent."""
+    """Cache the game's cover art where /game-icon serves it (ICON_DIR/games/<titleId>).
+    Real GameTDB box art first; the Vita's own square icon0.png over FTP as a
+    fallback. Cached once; skipped if already present. Best-effort — never raises."""
     path = Path(config.ICON_DIR) / "games" / title_id
     if path.exists():
         return
-    buf = io.BytesIO()
-    try:
-        ftp.retrbinary("RETR ux0:/app/%s/sce_sys/icon0.png" % title_id, buf.write)
-    except ftplib.all_errors:
-        return
-    data = buf.getvalue()
-    if data[:8] != b"\x89PNG\r\n\x1a\n":  # only store a real PNG
-        return
+    data = _fetch_gametdb_cover(title_id)
+    if not data:
+        buf = io.BytesIO()
+        try:
+            ftp.retrbinary("RETR ux0:/app/%s/sce_sys/icon0.png" % title_id, buf.write)
+        except ftplib.all_errors:
+            return
+        data = buf.getvalue()
+        if data[:8] != b"\x89PNG\r\n\x1a\n":  # only store a real PNG
+            return
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(data)
 

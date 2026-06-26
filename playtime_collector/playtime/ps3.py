@@ -180,9 +180,10 @@ async def fetch_avatar(host, client, profile_id, username):
     return png if png[:8] == b"\x89PNG\r\n\x1a\n" else None
 
 
-# Game icons: prefer the console's own ICON0.PNG (authentic, matches what's
-# installed, works offline of the internet) and fall back to GameTDB's free PS3
-# cover database keyed by TITLEID (covers disc/uninstalled games; needs internet).
+# Game icons: prefer real box/cover art from GameTDB's free cover database keyed
+# by TITLEID (proper portrait covers, also covers disc/uninstalled games; needs
+# internet) and fall back to the console's own square ICON0.PNG as a last resort
+# (authentic, matches what's installed, works offline of the internet).
 GAMETDB_REGIONS = ("EN", "US", "JA", "FR", "DE", "ES")
 
 
@@ -191,17 +192,10 @@ def _is_image(b):
 
 
 async def fetch_game_icon(host, client, title_id):
-    """Fetch a game's icon bytes (PNG or JPEG), or None. Console ICON0 first,
-    then GameTDB cover art."""
+    """Fetch a game's icon bytes (PNG or JPEG), or None. GameTDB cover art first
+    (real box art), the console's square ICON0 only as an offline last resort."""
     if not title_id:
         return None
-    try:
-        r = await client.get(
-            "http://" + host + "/dev_hdd0/game/" + title_id + "/ICON0.PNG", timeout=5.0)
-        if r.status_code == 200 and _is_image(r.content):
-            return r.content
-    except (httpx.HTTPError, OSError):
-        pass
     for region in GAMETDB_REGIONS:
         try:
             r = await client.get(
@@ -210,6 +204,13 @@ async def fetch_game_icon(host, client, title_id):
             continue
         if r.status_code == 200 and _is_image(r.content):
             return r.content
+    try:
+        r = await client.get(
+            "http://" + host + "/dev_hdd0/game/" + title_id + "/ICON0.PNG", timeout=5.0)
+        if r.status_code == 200 and _is_image(r.content):
+            return r.content
+    except (httpx.HTTPError, OSError):
+        pass
     return None
 
 

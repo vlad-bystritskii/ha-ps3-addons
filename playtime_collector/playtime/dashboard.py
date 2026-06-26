@@ -56,6 +56,15 @@ def _account_payload(acct_id, name, pairs, person_id, earned_by_game, open_keys)
     }
 
 
+def _trophy_icon_url(account, npcommid, trophy_id):
+    """Build the relative trophy-icon route (ingress-safe). The image route 404s when
+    no real icon exists; the dashboard's <img onerror> then reveals the diamond
+    placeholder, so it's always safe to emit a path here."""
+    if account and npcommid and trophy_id is not None and trophy_id != "":
+        return "trophy-icon/%s/%s/%s" % (account, npcommid, trophy_id)
+    return None
+
+
 def build_data():
     troph_sets = db.query_trophies(None, None)
     earned_by_game = {(t["account"], t["title"]): t.get("earnedCount", 0) for t in troph_sets}
@@ -93,6 +102,7 @@ def build_data():
         "account": r["account"], "game": r["game"], "npcommid": r["npcommid"],
         "trophyId": r["trophy_id"], "name": r["name"], "detail": r["detail"],
         "grade": r["grade"], "earnedAt": r["earned_at"], "rate": r["earned_rate"],
+        "iconUrl": _trophy_icon_url(r["account"], r["npcommid"], r["trophy_id"]),
     } for r in db.recent_trophy_unlocks(config.PLATFORM, 200)]
 
     trophies = [{
@@ -114,7 +124,7 @@ def render():
 _PAGE = r"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>PLAYTRACE</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><text y='52' font-size='52'>🎮</text></svg>">
+<link rel="icon" href="icon">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
@@ -173,6 +183,7 @@ let POP=[];   // trophy payloads referenced by index from inline onclick (avoids
 
 const curAcc=()=>D.accounts[state.accountIdx]||null;
 function accMeta(a){return {name:a.name,initials:initials(a.name),color:palColor(a.name),
+ account:(a.pairs&&a.pairs[0]&&a.pairs[0][1])||'',
  platLabel:a.platforms&&a.platforms.length?a.platforms.map(p=>plat(p).label).join('/'):'—',
  totalLabel:formatH(a.totalSeconds)};}
 
@@ -224,11 +235,11 @@ function buildHistory(){
  const items=[];
  D.sessions.forEach(s=>{const oi=ownerIdx(s.platform,s.account);const pn=oi>=0?D.accounts[oi].name:s.account;
    items.push({kind:'session',dt:s.started,platform:s.platform,title:s.title,titleId:s.titleId,
-     ownerIdx:oi,playerName:pn,playerColor:palColor(pn),seconds:s.seconds});});
+     ownerIdx:oi,playerName:pn,playerColor:palColor(pn),account:s.account,seconds:s.seconds});});
  D.feed.forEach(f=>{const oi=ownerIdx('ps3',f.account);const pn=oi>=0?D.accounts[oi].name:f.account;
    items.push({kind:'trophy',dt:f.earnedAt,platform:'ps3',game:f.game,ownerIdx:oi,
      playerName:pn,playerColor:palColor(pn),name:f.name,desc:f.detail,rate:f.rate,
-     npcommid:f.npcommid,trophyId:f.trophyId,account:f.account});});
+     npcommid:f.npcommid,trophyId:f.trophyId,account:f.account,iconUrl:f.iconUrl});});
  let f=items.filter(it=>state.histFilter==='all'||it.kind===state.histFilter);
  if(state.histProfile!=='all')f=f.filter(it=>it.ownerIdx===+state.histProfile);
  f.sort((a,b)=>String(b.dt||'').localeCompare(String(a.dt||'')));
@@ -283,7 +294,7 @@ function headerHTML(a){
  // account switcher
  h+='<div style="position:relative;">';
  h+='<button onclick="event.stopPropagation();toggleAccountMenu()" style="display:flex;align-items:center;gap:9px;border:1px solid var(--border2);background:var(--surface);padding:5px 11px 5px 6px;border-radius:12px;cursor:pointer;">'
-  +'<div style="width:30px;height:30px;border-radius:9px;background:'+m.color+';display:flex;align-items:center;justify-content:center;font:600 12px \'Space Grotesk\';color:#fff;">'+esc(m.initials)+'</div>'
+  +avatarBox(m.name,m.account,m.color,30,9,12)
   +'<div style="display:flex;flex-direction:column;align-items:flex-start;line-height:1.1;">'
   +'<span style="font:600 13px \'Space Grotesk\';color:var(--text);">'+esc(m.name)+'</span>'
   +'<span style="font-size:10px;color:var(--faint);">'+esc(m.platLabel)+'</span></div>'
@@ -294,7 +305,7 @@ function headerHTML(a){
    h+='<div style="font-size:9.5px;color:var(--faint);letter-spacing:.16em;text-transform:uppercase;padding:8px 10px 6px;">Switch account</div>';
    D.accounts.forEach((o,i)=>{const om=accMeta(o);const active=i===state.accountIdx;
      h+='<button onclick="selectAccount('+i+')" style="display:flex;align-items:center;gap:11px;width:100%;border:none;background:'+(active?'var(--surfaceHover)':'transparent')+';padding:9px 10px;border-radius:10px;cursor:pointer;text-align:left;">'
-      +'<div style="width:34px;height:34px;border-radius:10px;background:'+om.color+';display:flex;align-items:center;justify-content:center;font:600 13px \'Space Grotesk\';color:#fff;flex:none;">'+esc(om.initials)+'</div>'
+      +avatarBox(om.name,om.account,om.color,34,10,13)
       +'<div style="flex:1;min-width:0;"><div style="font:600 13px \'Space Grotesk\';color:var(--text);">'+esc(om.name)+'</div>'
       +'<div style="font-size:11px;color:var(--dim);">'+esc(om.platLabel)+' · '+esc(om.totalLabel)+'</div></div>'
       +(active?'<span style="color:var(--accent);font-size:13px;font-weight:700;">●</span>':'')+'</button>';
@@ -347,12 +358,26 @@ function playtimeHTML(a){
 /* Game cover icon with graceful fallback: the striped platform-tinted initials box
    is the base layer; a real cover <img src="game-icon/{titleId}"> (relative for HA
    ingress) is overlaid on top and hides itself onerror (missing/404 icon), revealing
-   the initials box underneath — so it never shows a broken-image glyph. */
+   the initials box underneath — so it never shows a broken-image glyph.
+   The backend now serves portrait box-art, so the cover is laid out with
+   object-fit:contain (whole cover, never squished/awkwardly cropped) over its own
+   platform-tinted backing that fills the letterbox gaps so the initials never peek. */
 function gameIconHTML(titleId,title,color,size,radius,fontSize,s1,s2){
  const box='<div style="position:absolute;inset:0;background:'+color+'1f;background-image:repeating-linear-gradient(135deg, '+color+'1a 0 '+s1+'px, transparent '+s1+'px '+s2+'px);display:flex;align-items:center;justify-content:center;font:700 '+fontSize+'px \'JetBrains Mono\';color:'+color+';">'+esc(initials(title))+'</div>';
- const img=titleId?('<img src="game-icon/'+encodeURIComponent(titleId)+'" alt="" loading="lazy" onerror="this.style.display=\'none\'" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;">'):'';
+ const img=titleId?('<img src="game-icon/'+encodeURIComponent(titleId)+'" alt="" loading="lazy" onerror="this.style.display=\'none\'" style="position:absolute;inset:0;width:100%;height:100%;object-fit:contain;object-position:center;background:'+color+'1f;display:block;">'):'';
  return '<div style="position:relative;width:'+size+'px;height:'+size+'px;border-radius:'+radius+'px;overflow:hidden;flex:none;border:1px solid '+color+'55;">'+box+img+'</div>';
 }
+/* Avatar overlay: a real PS3 avatar <img src="avatar/{account}"> sits over a colored
+   initials box; onerror hides the img so the initials show through (never a broken
+   glyph). Returned as an inline-flex <span> so it works both as a flex child (header
+   switcher, dropdown, top-players) and inline (history player). */
+function avatarImg(account){return account?('<img src="avatar/'+encodeURIComponent(account)+'" alt="" loading="lazy" onerror="this.style.display=\'none\'" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;">'):'';}
+function avatarBox(name,account,color,size,radius,fontSize){
+ return '<span style="position:relative;display:inline-flex;flex:none;vertical-align:middle;overflow:hidden;width:'+size+'px;height:'+size+'px;border-radius:'+radius+'px;background:'+color+';align-items:center;justify-content:center;font:600 '+fontSize+'px \'Space Grotesk\';color:#fff;">'+esc(initials(name))+avatarImg(account)+'</span>';
+}
+/* Real trophy icon <img src="{iconUrl}"> overlaid on the rarity-tinted diamond frame;
+   onerror hides the img so the diamond placeholder shows through. */
+function trophyIconImg(url){return url?('<img src="'+esc(url)+'" alt="" loading="lazy" onerror="this.style.display=\'none\'" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;">'):'';}
 function gameRowHTML(g,i,withDivider,total){
  const pm=plat(g.platform);const rankColor=i<3?'var(--accent)':'var(--faint,#5b6070)';
  const divider=(withDivider&&i===total-1)?'1px solid transparent':'1px solid var(--border)';
@@ -427,11 +452,11 @@ function historyItemHTML(it){
  const pm=plat(it.platform);const time=String(it.dt||'').slice(11,16);
  let icon,title,titleColor,subRest,rightMain,rightColor,rightSub,onclick,cursor='pointer';
  if(it.kind==='trophy'){const rr=rarity(it.rate);
-   icon='<div style="width:44px;height:44px;border-radius:11px;background:'+rr.color+'1a;border:1px solid '+rr.color+'40;display:flex;align-items:center;justify-content:center;flex:none;"><div style="width:14px;height:14px;background:'+rr.color+';transform:rotate(45deg);border-radius:3px;"></div></div>';
+   icon='<div style="position:relative;overflow:hidden;width:44px;height:44px;border-radius:11px;background:'+rr.color+'1a;border:1px solid '+rr.color+'40;display:flex;align-items:center;justify-content:center;flex:none;"><div style="width:14px;height:14px;background:'+rr.color+';transform:rotate(45deg);border-radius:3px;"></div>'+trophyIconImg(it.iconUrl)+'</div>';
    title=esc(it.name);titleColor='var(--accent)';subRest=' · '+esc(it.game||'')+' — '+esc(it.desc||'');
    rightMain=it.rate!=null?(+it.rate).toFixed(1)+'%':'—';rightColor=rr.color;rightSub=rr.label;
    const idx=POP.push({name:it.name,desc:it.desc,pctLabel:rightMain,rarityColor:rr.color,rarityLabel:rr.label,
-     game:it.game,platLabel:pm.label,platColor:pm.color,player:it.playerName,playerColor:it.playerColor})-1;
+     game:it.game,platLabel:pm.label,platColor:pm.color,player:it.playerName,playerColor:it.playerColor,iconUrl:it.iconUrl})-1;
    onclick='openTrophyPopup('+idx+')';
  }else{
    icon='<div style="width:44px;height:44px;border-radius:11px;background:color-mix(in oklab, var(--accent) 13%, transparent);border:1px solid color-mix(in oklab, var(--accent) 30%, transparent);display:flex;align-items:center;justify-content:center;flex:none;"><div style="width:0;height:0;border-left:11px solid var(--accent);border-top:7px solid transparent;border-bottom:7px solid transparent;margin-left:3px;"></div></div>';
@@ -445,7 +470,7 @@ function historyItemHTML(it){
   +'<div style="flex:1;min-width:0;"><div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap;">'
   +'<span style="font:600 14px \'Space Grotesk\';color:'+titleColor+';">'+title+'</span>'
   +'<span style="background:'+pm.color+'1f;color:'+pm.color+';padding:2px 8px;border-radius:6px;font:600 10px \'JetBrains Mono\';">'+esc(pm.label)+'</span></div>'
-  +'<div style="font-size:12.5px;color:var(--dim);margin-top:3px;"><span style="color:'+it.playerColor+';font-weight:600;">'+esc(it.playerName)+'</span>'+subRest+'</div></div>'
+  +'<div style="font-size:12.5px;color:var(--dim);margin-top:3px;">'+avatarBox(it.playerName,it.account,it.playerColor,16,5,8)+' <span style="color:'+it.playerColor+';font-weight:600;">'+esc(it.playerName)+'</span>'+subRest+'</div></div>'
   +'<div style="display:flex;flex-direction:column;align-items:flex-end;flex:none;line-height:1.25;">'
   +'<span style="font:700 13px \'JetBrains Mono\';color:'+rightColor+';">'+esc(rightMain)+'</span>'
   +'<span style="font-size:9.5px;color:var(--faint);text-transform:uppercase;letter-spacing:.08em;">'+esc(rightSub)+'</span></div></div>';
@@ -489,7 +514,7 @@ function computeGameDetailLocal(platform,titleId){
  const pl={};sess.forEach(s=>{(pl[s.account]||(pl[s.account]={sec:0,n:0}));pl[s.account].sec+=s.seconds;pl[s.account].n++;});
  const troMap={};D.trophies.forEach(t=>{if(t.title===title)troMap[t.account]=t.earnedCount;});
  const players=Object.entries(pl).map(([acc,v])=>{const oi=ownerIdx(plt,acc);const nm=oi>=0?D.accounts[oi].name:acc;
-   return {name:nm,color:palColor(nm),initials:initials(nm),sec:v.sec,sessions:v.n,trophies:troMap[acc]||0};})
+   return {name:nm,color:palColor(nm),initials:initials(nm),account:acc,sec:v.sec,sessions:v.n,trophies:troMap[acc]||0};})
    .sort((x,y)=>y.sec-x.sec).slice(0,4);
  const last=sess.reduce((m,s)=>(!m||s.started>m)?s.started:m,null);
  const troCount=Object.values(troMap).reduce((x,y)=>x+y,0);
@@ -505,10 +530,10 @@ async function openGame(platform,titleId){
  try{const r=await fetchJSON('games/'+encodeURIComponent(platform)+'/'+encodeURIComponent(titleId));
    if(state.view!=='game'||!state.activeGame||state.activeGame.titleId!==titleId)return;
    const players=(r.players||[]).map(p=>{const nm=p.person||p.account;
-     return {name:nm,color:palColor(nm),initials:initials(nm),sec:p.seconds,sessions:p.sessions,trophies:p.trophies||0};})
+     return {name:nm,color:palColor(nm),initials:initials(nm),account:p.account,sec:p.seconds,sessions:p.sessions,trophies:p.trophies||0};})
      .sort((x,y)=>y.sec-x.sec).slice(0,4);
    const tro=(r.trophies||[]).map(t=>({id:t.id,name:t.name,desc:t.desc,grade:t.grade,
-     unlocked:t.unlocked,rate:t.rarityPct,earnedAt:t.earnedAt}));
+     unlocked:t.unlocked,rate:t.rarityPct,earnedAt:t.earnedAt,iconUrl:t.iconUrl}));
    state.gameDetail={title:r.title||state.gameDetail.title,platform:r.platform||platform,
      init:initials(r.title||state.gameDetail.title),totalSeconds:r.totalSeconds,sessions:r.sessions,
      avgSeconds:r.avgSession,players,trophies:tro,trophyCount:tro.filter(t=>t.unlocked!==false).length,
@@ -539,7 +564,7 @@ function gameModalHTML(){
  h+='<div><span style="display:block;font:600 11px \'JetBrains Mono\';letter-spacing:.2em;text-transform:uppercase;color:#2fd4a8;margin-bottom:13px;">Top Players</span><div style="display:flex;flex-direction:column;gap:2px;">';
  if(g.players.length)g.players.forEach((p,i)=>{h+='<div style="display:flex;align-items:center;gap:12px;padding:11px 2px;border-bottom:1px solid var(--border,rgba(255,255,255,.06));">'
    +'<span style="width:18px;font:600 12px \'JetBrains Mono\';color:var(--faint);flex:none;">'+String(i+1).padStart(2,'0')+'</span>'
-   +'<div style="width:36px;height:36px;border-radius:11px;background:'+p.color+';display:flex;align-items:center;justify-content:center;font:600 12.5px \'Space Grotesk\';color:#fff;flex:none;">'+esc(p.initials)+'</div>'
+   +avatarBox(p.name,p.account,p.color,36,11,12.5)
    +'<div style="flex:1;min-width:0;"><div style="font:600 13px \'Space Grotesk\';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+esc(p.name)+'</div>'
    +'<div style="font-size:11px;color:var(--dim);margin-top:2px;">'+esc(plural(p.sessions,'session'))+' · <span style="color:#ffb648;">◆ '+(p.trophies||0)+'</span></div></div>'
    +'<span style="background:'+ACCENT+'24;color:'+ACCENT+';padding:4px 9px;border-radius:8px;font:600 11px \'JetBrains Mono\';white-space:nowrap;flex:none;">'+esc(formatH(p.sec))+'</span></div>';});
@@ -552,9 +577,9 @@ function gameModalHTML(){
    tro.forEach(t=>{const rr=rarity(t.rate);
      const idx=POP.push({name:t.name,desc:t.desc,pctLabel:t.rate!=null?(+t.rate).toFixed(1)+'%':'—',
        rarityColor:rr.color,rarityLabel:rr.label,game:g.title,platLabel:pm.label,platColor:pm.color,
-       player:'',playerColor:'var(--dim)'})-1;
+       player:'',playerColor:'var(--dim)',iconUrl:t.iconUrl})-1;
      h+='<div onclick="openTrophyPopup('+idx+')" style="display:flex;align-items:center;gap:13px;padding:11px 6px;margin:0 -6px;border-bottom:1px solid var(--border,rgba(255,255,255,.06));cursor:pointer;border-radius:10px;">'
-      +'<div style="width:42px;height:42px;border-radius:11px;background:'+rr.color+'1a;border:1px solid '+rr.color+'40;display:flex;align-items:center;justify-content:center;flex:none;"><div style="width:13px;height:13px;background:'+rr.color+';transform:rotate(45deg);border-radius:3px;"></div></div>'
+      +'<div style="position:relative;overflow:hidden;width:42px;height:42px;border-radius:11px;background:'+rr.color+'1a;border:1px solid '+rr.color+'40;display:flex;align-items:center;justify-content:center;flex:none;"><div style="width:13px;height:13px;background:'+rr.color+';transform:rotate(45deg);border-radius:3px;"></div>'+trophyIconImg(t.iconUrl)+'</div>'
       +'<div style="flex:1;min-width:0;"><div style="font:600 13.5px \'Space Grotesk\';color:var(--accent);">'+esc(t.name)+'</div>'
       +'<div style="font-size:11.5px;color:var(--dim);margin-top:2px;">'+esc(t.desc||'')+'</div></div>'
       +'<div style="display:flex;flex-direction:column;align-items:flex-end;flex:none;line-height:1.25;">'
@@ -571,7 +596,7 @@ function gameModalHTML(){
 function trophyPopupHTML(t){
  return '<div onclick="closeTrophy()" style="position:fixed;inset:0;z-index:60;background:color-mix(in oklab, var(--bg,#0b0d12) 55%, transparent);backdrop-filter:blur(9px);-webkit-backdrop-filter:blur(9px);display:flex;align-items:center;justify-content:center;padding:24px;">'
   +'<div onclick="event.stopPropagation()" style="width:100%;max-width:420px;background:var(--surface,#14161d);border:1px solid var(--border2);border-radius:20px;box-shadow:0 30px 90px rgba(0,0,0,.55);padding:26px;text-align:center;animation:ptPop .24s cubic-bezier(.2,.85,.3,1) forwards;">'
-  +'<div style="width:78px;height:78px;margin:4px auto 0;border-radius:20px;background:'+t.rarityColor+'1a;border:1px solid '+t.rarityColor+'55;display:flex;align-items:center;justify-content:center;"><div style="width:26px;height:26px;background:'+t.rarityColor+';transform:rotate(45deg);border-radius:5px;"></div></div>'
+  +'<div style="position:relative;overflow:hidden;width:78px;height:78px;margin:4px auto 0;border-radius:20px;background:'+t.rarityColor+'1a;border:1px solid '+t.rarityColor+'55;display:flex;align-items:center;justify-content:center;"><div style="width:26px;height:26px;background:'+t.rarityColor+';transform:rotate(45deg);border-radius:5px;"></div>'+trophyIconImg(t.iconUrl)+'</div>'
   +'<div style="font:700 19px \'Space Grotesk\';margin-top:16px;letter-spacing:-.01em;">'+esc(t.name)+'</div>'
   +'<div style="display:inline-flex;align-items:center;gap:8px;margin-top:9px;">'
   +'<span style="background:'+t.rarityColor+'22;color:'+t.rarityColor+';padding:3px 10px;border-radius:7px;font:600 11px \'JetBrains Mono\';text-transform:uppercase;letter-spacing:.06em;">'+esc(t.rarityLabel)+'</span>'

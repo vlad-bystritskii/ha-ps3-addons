@@ -523,6 +523,9 @@ def _game_trophies(platform, npcommids, accounts):
                         "unlocked": bool(it["unlocked"]),
                         "earnedAt": it["earnedAt"],
                         "rarityPct": info["earned_rate"] if info else None,
+                        # Relative (no leading slash) for HA ingress; served by
+                        # GET /trophy-icon/{account}/{npcommid}/{trophy_id}.
+                        "iconUrl": "trophy-icon/%s/%s/%d" % (acct, npcommid, tid),
                     }
                 elif it["unlocked"]:
                     cur["unlocked"] = True
@@ -576,7 +579,7 @@ def history(
     if typ in ("all", "trophy"):
         for t in db.trophy_history(platform, accounts, limit):
             who = pmap.get((t["platform"], t["account"]))
-            items.append({
+            item = {
                 "kind": "trophy",
                 "datetime": t["earned_at"],
                 "title": t["game"],
@@ -588,7 +591,14 @@ def history(
                 "person": who["name"] if who else None,
                 "personId": who["id"] if who else None,
                 "rarityPct": t["earned_rate"],
-            })
+            }
+            # Relative (no leading slash) for HA ingress; served by
+            # GET /trophy-icon/{account}/{npcommid}/{trophy_id}. Omitted if a
+            # trophy somehow lacks account/npcommid (shouldn't for PS3).
+            if t["account"] and t["npcommid"]:
+                item["iconUrl"] = "trophy-icon/%s/%s/%d" % (
+                    t["account"], t["npcommid"], t["trophy_id"])
+            items.append(item)
 
     items.sort(key=lambda x: x["datetime"] or "", reverse=True)
     return {"history": items[:limit]}
@@ -731,6 +741,19 @@ async def game_icon(
         data = path.read_bytes()
         return Response(content=data, media_type=_img_media_type(data), headers=headers)
     raise HTTPException(status_code=404, detail="no icon")
+
+
+@app.get("/icon")
+def app_icon():
+    """The add-on's own icon.png, for the web UI's favicon. Open (no token), like
+    the other image routes. 404 if the icon isn't present in the image."""
+    path = Path("/app/icon.png")
+    try:
+        data = path.read_bytes()
+    except OSError:
+        raise HTTPException(status_code=404, detail="no icon")
+    return Response(content=data, media_type="image/png",
+                    headers={"Cache-Control": "max-age=604800"})
 
 
 @app.delete("/sessions")
